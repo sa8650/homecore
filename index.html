@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Smart Home — Floor Plan</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8F%A0%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- Connection prompt (IP + password) -->
+  <div class="modal" id="connModal" data-open="true">
+    <div class="modal-card narrow">
+      <h2>🏠 Connect to your ESP32</h2>
+      <p class="muted">This dashboard runs on GitHub Pages and talks to your
+        ESP32 over your local network. Enter the device's IP and admin password.</p>
+      <label>ESP32 IP / hostname</label>
+      <input id="espHost" placeholder="http://192.168.1.42" />
+      <label>Admin password</label>
+      <input id="espPass" type="password" placeholder="admin123" />
+      <div class="row gap-8 mt-12">
+        <button class="btn primary" id="btnConnect">Connect</button>
+        <button class="btn ghost" id="btnDiscover">🔍 Auto-discover</button>
+      </div>
+      <p class="hint" id="connHint"></p>
+    </div>
+  </div>
+
+  <!-- App shell -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon">🏠</span>
+      <span class="brand-text">Smart Home</span>
+      <span class="badge" id="connBadge">offline</span>
+    </div>
+    <nav class="actions">
+      <button class="btn icon" id="btnRefresh" title="Refresh">↻</button>
+      <button class="btn" id="btnSettings">⚙️ Settings</button>
+    </nav>
+  </header>
+
+  <div class="alarm" id="alarmBanner" hidden>
+    <span>🚨 Alarm active</span>
+    <button class="btn danger" id="btnSilence">Silence</button>
+  </div>
+
+  <section class="stats" id="stats">
+    <div class="stat"><div class="k">Uptime</div><div class="v" id="sUptime">—</div></div>
+    <div class="stat"><div class="k">Free RAM</div><div class="v" id="sHeap">—</div></div>
+    <div class="stat"><div class="k">RSSI</div><div class="v" id="sRssi">—</div></div>
+    <div class="stat"><div class="k">Mode</div><div class="v" id="sMode">—</div></div>
+    <div class="stat"><div class="k">Rooms</div><div class="v" id="sRooms">0</div></div>
+    <div class="stat"><div class="k">Switches</div><div class="v" id="sSwitches">0</div></div>
+  </section>
+
+  <main>
+    <!-- 2D floor plan -->
+    <section class="card" id="planCard">
+      <div class="card-head">
+        <h3>Floor plan</h3>
+        <div class="row gap-8">
+          <button class="btn" id="btnAddRoom">+ Room</button>
+          <button class="btn ghost" id="btnResetPlan">Reset layout</button>
+        </div>
+      </div>
+      <div class="floorplan" id="floorplan">
+        <div class="empty">No rooms yet. Click <b>+ Room</b> to begin.</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Settings modal -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-card wide">
+      <header class="modal-head">
+        <h2>Settings</h2>
+        <button class="btn icon" data-close>✕</button>
+      </header>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="connection">Connection</button>
+        <button class="tab" data-tab="rooms">Rooms</button>
+        <button class="tab" data-tab="switches">Switches</button>
+        <button class="tab" data-tab="raw">Raw API</button>
+      </div>
+      <div class="tab-panel active" data-panel="connection">
+        <h4>ESP32 connection</h4>
+        <label>Host</label>
+        <input id="setHost" placeholder="http://192.168.1.42" />
+        <label>Admin password</label>
+        <input id="setPass" type="password" />
+        <div class="row gap-8 mt-12">
+          <button class="btn primary" id="btnSaveConn">Save &amp; reconnect</button>
+          <button class="btn ghost" id="btnTestConn">Test</button>
+        </div>
+        <p class="hint" id="testResult"></p>
+
+        <h4 class="mt-24">Wi-Fi (sent to ESP32)</h4>
+        <label>Mode</label>
+        <select id="wifiMode">
+          <option value="sta">Station (join your router)</option>
+          <option value="ap">Access point (no router)</option>
+        </select>
+        <div id="wifiStaBox">
+          <label>SSID</label>
+          <input id="wifiSSID" />
+          <label>Password</label>
+          <input id="wifiPass" type="password" />
+        </div>
+        <button class="btn mt-12" id="btnSaveWifi">Apply Wi-Fi (ESP restarts)</button>
+      </div>
+
+      <div class="tab-panel" data-panel="rooms">
+        <h4>Rooms</h4>
+        <div class="row gap-8">
+          <input id="newRoomName" placeholder="Master bedroom" />
+          <select id="newRoomType">
+            <option value="bedroom">🛏️ Bedroom</option>
+            <option value="kitchen">🍳 Kitchen</option>
+            <option value="bathroom">🚿 Bathroom</option>
+            <option value="garage">🚗 Garage</option>
+            <option value="balcony">🌿 Balcony</option>
+            <option value="dining">🍽️ Dining</option>
+            <option value="living">🛋️ Living</option>
+            <option value="custom">🏠 Custom</option>
+          </select>
+          <button class="btn primary" id="btnCreateRoom">Add</button>
+        </div>
+        <ul class="list" id="roomList"></ul>
+      </div>
+
+      <div class="tab-panel" data-panel="switches">
+        <h4>Switches</h4>
+        <div class="row gap-8">
+          <input id="newSwName" placeholder="Kitchen light" />
+          <select id="newSwPin"></select>
+          <button class="btn primary" id="btnCreateSw">Add</button>
+        </div>
+        <p class="hint">Pins listed are free on the ESP32. Save and the dashboard
+          will refresh.</p>
+        <ul class="list" id="switchList"></ul>
+      </div>
+
+      <div class="tab-panel" data-panel="raw">
+        <h4>Raw API explorer</h4>
+        <p class="muted">For debugging. Curl-style requests against the device.</p>
+        <div class="row gap-8">
+          <select id="rawMethod">
+            <option>GET</option><option>POST</option>
+          </select>
+          <input id="rawPath" placeholder="/api/rooms" />
+          <input id="rawBody" placeholder="action=add&name=Test&type=custom" />
+          <button class="btn" id="btnRawSend">Send</button>
+        </div>
+        <pre id="rawOut" class="code"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1bb80507fedd85a',t:'MTc4NDE0NzE3Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
