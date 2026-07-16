@@ -1,9 +1,5 @@
 /* =================================================================
- * app.js — Smart Home webapp (GitHub Pages)
- *
- * Renders the 2D floor plan, room list, and switch controls. Pulls
- * data from the ESP32 via api.js. Drags / resizes rooms and writes
- * positions back to the device.
+ * app.js — Smart Home webapp (GitHub Pages / Netlify)
  * ================================================================= */
 
 const ROOM_ICONS = {
@@ -23,7 +19,6 @@ const state = {
   pollMs: 5000,
 };
 
-// ---------- toast ----------
 const toast = (msg, kind = '') => {
   const el = $('#toast');
   el.textContent = msg;
@@ -33,7 +28,6 @@ const toast = (msg, kind = '') => {
   toast._t = setTimeout(() => (el.hidden = true), 2400);
 };
 
-// ---------- modal helpers ----------
 const openModal = (id) => {
   const m = document.getElementById(id);
   if (m) m.dataset.open = 'true';
@@ -43,7 +37,6 @@ const closeModal = (id) => {
   if (m) m.dataset.open = 'false';
 };
 
-// ---------- connection flow ----------
 function showConnIfNeeded() {
   if (ESP.hasCreds()) {
     testConnection().catch(() => openModal('connModal'));
@@ -64,8 +57,9 @@ async function testConnection() {
 async function connectFlow() {
   const host = $('#espHost').value.trim();
   const pass = $('#espPass').value;
+  const useProxy = $('#useProxy') ? $('#useProxy').checked : false;
   if (!host || !pass) { toast('Host and password required', 'bad'); return; }
-  ESP.save(host, pass);
+  ESP.save(host, pass, { useProxy });
   const hint = $('#connHint');
   hint.textContent = 'Connecting…';
   try {
@@ -95,7 +89,6 @@ async function discoverFlow() {
   }
 }
 
-// ---------- tabs ----------
 function bindTabs() {
   $$('.tab').forEach((t) => {
     t.addEventListener('click', () => {
@@ -108,7 +101,6 @@ function bindTabs() {
   });
 }
 
-// ---------- data load ----------
 async function refreshAll() {
   try {
     const [info, status, rooms, switches, pins] = await Promise.all([
@@ -123,7 +115,6 @@ async function refreshAll() {
     state.switches = (switches && switches.switches) || [];
     state.pins = (pins && pins.pins) || [];
 
-    // stats
     $('#sUptime').textContent = formatTime(info.uptime ?? 0);
     $('#sHeap').textContent = ((info.heap || 0) / 1024).toFixed(0) + ' kB';
     $('#sRssi').textContent = (status && status.rssi) || '—';
@@ -131,7 +122,6 @@ async function refreshAll() {
     $('#sRooms').textContent = state.rooms.length;
     $('#sSwitches').textContent = state.switches.length;
 
-    // alarm
     $('#alarmBanner').hidden = !(status && status.alarm);
 
     renderFloorPlan();
@@ -160,7 +150,6 @@ function formatTime(s) {
   return `${ss}s`;
 }
 
-// ---------- floor plan rendering ----------
 function renderFloorPlan() {
   const fp = $('#floorplan');
   fp.innerHTML = '';
@@ -207,9 +196,7 @@ function buildRoomEl(r, index) {
   rz.className = 'resizer';
   el.appendChild(rz);
 
-  // dragging the head
   attachDrag(el, head, index, 'move');
-  // resizing
   attachDrag(el, rz, index, 'resize');
   return el;
 }
@@ -249,7 +236,6 @@ function buildSwitchEl(s) {
   return row;
 }
 
-// ---------- dragging ----------
 function attachDrag(el, handle, index, mode) {
   let startX, startY, startRect, startVal, doing = false;
   const onDown = (e) => {
@@ -301,7 +287,6 @@ function attachDrag(el, handle, index, mode) {
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-// ---------- settings UI ----------
 function renderRoomList() {
   const ul = $('#roomList');
   ul.innerHTML = '';
@@ -383,7 +368,6 @@ function renderPinOptions() {
   }
 }
 
-// ---------- actions ----------
 async function addRoom() {
   const name = $('#newRoomName').value.trim();
   const type = $('#newRoomType').value;
@@ -406,7 +390,6 @@ async function deleteRoom(i) {
 }
 
 async function reassignRoom(i, dir) {
-  // Cycle the room to next/previous switch in the unassigned pool.
   const r = state.rooms[i];
   const assigned = new Set(state.switches
     .map((s, idx) => (s.roomId === r.id ? idx : -1))
@@ -453,8 +436,9 @@ async function silenceAlarm() {
 async function saveConn() {
   const host = $('#setHost').value.trim();
   const pass = $('#setPass').value;
+  const useProxy = $('#setUseProxy') ? $('#setUseProxy').checked : false;
   if (!host || !pass) { toast('Both fields required', 'bad'); return; }
-  ESP.save(host, pass);
+  ESP.save(host, pass, { useProxy });
   try {
     await testConnection();
     toast('Connected', 'ok');
@@ -508,11 +492,11 @@ function prefillConnInputs() {
   $('#espPass').value = ESP.pass;
   $('#setHost').value = ESP.host;
   $('#setPass').value = ESP.pass;
+  if ($('#setUseProxy')) $('#setUseProxy').checked = !!ESP.useProxy;
+  if ($('#useProxy')) $('#useProxy').checked = !!ESP.useProxy;
 }
 
-// ---------- wiring ----------
 function wire() {
-  // modal close buttons
   $$('[data-close]').forEach((b) => b.addEventListener('click',
     () => closeModal(b.closest('.modal').id)));
 
@@ -528,13 +512,11 @@ function wire() {
   $('#btnAddRoom').addEventListener('click', () => {
     prefillConnInputs();
     openModal('settingsModal');
-    // jump to rooms tab
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'rooms'));
     $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === 'rooms'));
   });
   $('#btnResetPlan').addEventListener('click', () => {
     if (!confirm('Reset all rooms to default grid?')) return;
-    // Just trigger a refresh — the firmware auto-lays-out new rooms.
     refreshAll();
   });
   $('#btnCreateRoom').addEventListener('click', addRoom);
@@ -546,7 +528,6 @@ function wire() {
     $('#wifiStaBox').style.display = e.target.value === 'sta' ? '' : 'none';
   });
 
-  // raw API
   $('#btnRawSend').addEventListener('click', async () => {
     const m = $('#rawMethod').value;
     const p = $('#rawPath').value || '/api/info';
@@ -565,7 +546,6 @@ function wire() {
 
   bindTabs();
 
-  // allow Enter on connect modal
   ['#espHost', '#espPass'].forEach((s) => {
     $(s).addEventListener('keydown', (e) => {
       if (e.key === 'Enter') connectFlow();
