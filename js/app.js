@@ -1,5 +1,5 @@
 /* =================================================================
- * app.js — Smart Home webapp (for local file use)
+ * app.js — Smart Home webapp (GitHub Pages + corsproxy.io)
  * ================================================================= */
 
 const ROOM_ICONS = {
@@ -11,12 +11,8 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const state = {
-  info: null,
-  rooms: [],
-  switches: [],
-  pins: [],
-  poll: null,
-  pollMs: 5000,
+  info: null, rooms: [], switches: [], pins: [],
+  poll: null, pollMs: 5000,
 };
 
 const toast = (msg, kind = '') => {
@@ -74,14 +70,14 @@ async function connectFlow() {
 
 async function discoverFlow() {
   const hint = $('#connHint');
-  hint.textContent = 'Scanning local subnets… (this takes ~10s)';
+  hint.textContent = 'Scanning… (~10s)';
   try {
     const res = await ESP.discover();
     if (res) {
       $('#espHost').value = res.host;
-      hint.textContent = `Found ${res.info.name} v${res.info.version} at ${res.host}`;
+      hint.textContent = `Found via ${res.proxy}: ${res.info.name} at ${res.host}`;
     } else {
-      hint.textContent = 'No device responded. Make sure you are on the same Wi-Fi.';
+      hint.textContent = 'No device found. Check the IP manually.';
     }
   } catch (e) {
     hint.textContent = 'Scan failed: ' + e.message;
@@ -94,8 +90,7 @@ function bindTabs() {
       const name = t.dataset.tab;
       $$('.tab').forEach((x) => x.classList.toggle('active', x === t));
       $$('.tab-panel').forEach((p) =>
-        p.classList.toggle('active', p.dataset.panel === name)
-      );
+        p.classList.toggle('active', p.dataset.panel === name));
     });
   });
 }
@@ -494,10 +489,7 @@ async function testProxies() {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 5000);
-      const target = ESP.host + '/api/info';
-      const url = p.idx === ESP.proxyIdx
-        ? ESP.buildUrl('/api/info', p.idx)
-        : (PROXIES_FALLBACK_TEST(p.name, target));
+      const url = ESP.buildUrl('/api/info', p.idx);
       const r = await fetch(url, {
         signal: ctrl.signal,
         headers: { 'X-Auth-Password': ESP.pass }
@@ -512,12 +504,6 @@ async function testProxies() {
     if (r.ok) return `<div style="color:#22c55e;">✅ ${r.name}: works</div>`;
     return `<div style="color:#ef4444;">❌ ${r.name}: ${r.err || ('HTTP ' + r.code)}</div>`;
   }).join('');
-}
-
-function PROXIES_FALLBACK_TEST(name, target) {
-  // We can't access the private PROXIES list from app.js,
-  // so we just delegate to ESP.findWorkingProxy for actual selection.
-  return ESP.buildUrl('/api/info');
 }
 
 function prefillConnInputs() {
