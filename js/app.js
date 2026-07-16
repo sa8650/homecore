@@ -1,5 +1,5 @@
 /* =================================================================
- * app.js — Smart Home webapp (GitHub Pages / Netlify)
+ * app.js — Smart Home webapp (for local file use)
  * ================================================================= */
 
 const ROOM_ICONS = {
@@ -57,9 +57,8 @@ async function testConnection() {
 async function connectFlow() {
   const host = $('#espHost').value.trim();
   const pass = $('#espPass').value;
-  const useProxy = $('#useProxy') ? $('#useProxy').checked : false;
   if (!host || !pass) { toast('Host and password required', 'bad'); return; }
-  ESP.save(host, pass, { useProxy });
+  ESP.save(host, pass);
   const hint = $('#connHint');
   hint.textContent = 'Connecting…';
   try {
@@ -436,9 +435,8 @@ async function silenceAlarm() {
 async function saveConn() {
   const host = $('#setHost').value.trim();
   const pass = $('#setPass').value;
-  const useProxy = $('#setUseProxy') ? $('#setUseProxy').checked : false;
   if (!host || !pass) { toast('Both fields required', 'bad'); return; }
-  ESP.save(host, pass, { useProxy });
+  ESP.save(host, pass);
   try {
     await testConnection();
     toast('Connected', 'ok');
@@ -487,13 +485,46 @@ async function loadWifiIntoUi() {
   } catch (_) { /* ignore */ }
 }
 
+async function testProxies() {
+  const out = $('#proxyList');
+  out.textContent = 'Testing all proxies… (takes ~10s)';
+  const list = ESP.getProxyList();
+  const results = [];
+  for (const p of list) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      const target = ESP.host + '/api/info';
+      const url = p.idx === ESP.proxyIdx
+        ? ESP.buildUrl('/api/info', p.idx)
+        : (PROXIES_FALLBACK_TEST(p.name, target));
+      const r = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { 'X-Auth-Password': ESP.pass }
+      });
+      clearTimeout(t);
+      results.push({ name: p.name, ok: r.ok, code: r.status });
+    } catch (e) {
+      results.push({ name: p.name, ok: false, err: e.message });
+    }
+  }
+  out.innerHTML = results.map(r => {
+    if (r.ok) return `<div style="color:#22c55e;">✅ ${r.name}: works</div>`;
+    return `<div style="color:#ef4444;">❌ ${r.name}: ${r.err || ('HTTP ' + r.code)}</div>`;
+  }).join('');
+}
+
+function PROXIES_FALLBACK_TEST(name, target) {
+  // We can't access the private PROXIES list from app.js,
+  // so we just delegate to ESP.findWorkingProxy for actual selection.
+  return ESP.buildUrl('/api/info');
+}
+
 function prefillConnInputs() {
   $('#espHost').value = ESP.host;
   $('#espPass').value = ESP.pass;
   $('#setHost').value = ESP.host;
   $('#setPass').value = ESP.pass;
-  if ($('#setUseProxy')) $('#setUseProxy').checked = !!ESP.useProxy;
-  if ($('#useProxy')) $('#useProxy').checked = !!ESP.useProxy;
 }
 
 function wire() {
@@ -523,6 +554,7 @@ function wire() {
   $('#btnCreateSw').addEventListener('click', addSwitch);
   $('#btnSaveConn').addEventListener('click', saveConn);
   $('#btnTestConn').addEventListener('click', testConn);
+  $('#btnTestProxies').addEventListener('click', testProxies);
   $('#btnSaveWifi').addEventListener('click', saveWifi);
   $('#wifiMode').addEventListener('change', (e) => {
     $('#wifiStaBox').style.display = e.target.value === 'sta' ? '' : 'none';
