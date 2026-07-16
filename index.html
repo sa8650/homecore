@@ -12,9 +12,8 @@
   <div class="modal" id="connModal" data-open="true">
     <div class="modal-card narrow">
       <h2>🏠 Connect to your ESP32</h2>
-      <p class="muted">This dashboard is on HTTPS and talks to your ESP32 over
-        HTTP. If your browser blocks "mixed content", the dashboard will
-        automatically route through a CORS proxy.</p>
+      <p class="muted">Enter the device's IP and admin password. The webapp will
+        talk to your ESP32 over your local network.</p>
       <label>ESP32 IP / hostname</label>
       <input id="espHost" placeholder="http://192.168.1.42" />
       <label>Admin password</label>
@@ -23,10 +22,6 @@
         <button class="btn primary" id="btnConnect">Connect</button>
         <button class="btn ghost" id="btnDiscover">🔍 Auto-discover</button>
       </div>
-      <label class="row gap-8 mt-12" style="font-size:12px;color:var(--fg-2);">
-        <input type="checkbox" id="useProxy" style="width:auto;" />
-        Force CORS proxy (slower but bypasses mixed-content blocks)
-      </label>
       <p class="hint" id="connHint"></p>
     </div>
   </div>
@@ -90,15 +85,13 @@
         <input id="setHost" placeholder="http://192.168.1.42" />
         <label>Admin password</label>
         <input id="setPass" type="password" />
-        <label class="row gap-8 mt-12" style="font-size:12px;color:var(--fg-2);">
-          <input type="checkbox" id="setUseProxy" style="width:auto;" />
-          Force CORS proxy
-        </label>
         <div class="row gap-8 mt-12">
           <button class="btn primary" id="btnSaveConn">Save &amp; reconnect</button>
           <button class="btn ghost" id="btnTestConn">Test</button>
+          <button class="btn ghost" id="btnTestProxies">🔍 Test proxies</button>
         </div>
         <p class="hint" id="testResult"></p>
+        <div id="proxyList" class="hint" style="margin-top:8px;"></div>
 
         <h4 class="mt-24">Wi-Fi (sent to ESP32)</h4>
         <label>Mode</label>
