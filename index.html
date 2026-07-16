@@ -12,9 +12,10 @@
   <div class="modal" id="connModal" data-open="true">
     <div class="modal-card narrow">
       <h2>🏠 Connect to your ESP32</h2>
-      <p class="muted">Hosted on GitHub Pages. Talks to your ESP32 through a CORS proxy (free for github.io domains). Enter your device's IP and password.</p>
-      <label>ESP32 IP / hostname</label>
-      <input id="espHost" placeholder="http://192.168.1.42" />
+      <p class="muted">Hosted on GitHub Pages. Connects via corsproxy.io (free for
+        github.io domains). Enter your device's IP and password.</p>
+      <label>ESP32 IP</label>
+      <input id="espHost" placeholder="http://192.168.0.104" />
       <label>Admin password</label>
       <input id="espPass" type="password" placeholder="admin123" />
       <div class="row gap-8 mt-12">
@@ -57,7 +58,7 @@
         <h3>Floor plan</h3>
         <div class="row gap-8">
           <button class="btn" id="btnAddRoom">+ Room</button>
-          <button class="btn ghost" id="btnResetPlan">Reset layout</button>
+          <button class="btn ghost" id="btnResetPlan">Refresh</button>
         </div>
       </div>
       <div class="floorplan" id="floorplan">
@@ -81,16 +82,14 @@
       <div class="tab-panel active" data-panel="connection">
         <h4>ESP32 connection</h4>
         <label>Host</label>
-        <input id="setHost" placeholder="http://192.168.1.42" />
+        <input id="setHost" placeholder="http://192.168.0.104" />
         <label>Admin password</label>
         <input id="setPass" type="password" />
         <div class="row gap-8 mt-12">
           <button class="btn primary" id="btnSaveConn">Save &amp; reconnect</button>
           <button class="btn ghost" id="btnTestConn">Test</button>
-          <button class="btn ghost" id="btnTestProxies">🔍 Test proxies</button>
         </div>
         <p class="hint" id="testResult"></p>
-        <div id="proxyList" class="hint" style="margin-top:8px;"></div>
 
         <h4 class="mt-24">Wi-Fi (sent to ESP32)</h4>
         <label>Mode</label>
@@ -133,7 +132,7 @@
           <select id="newSwPin"></select>
           <button class="btn primary" id="btnCreateSw">Add</button>
         </div>
-        <p class="hint">Pins listed are free on the ESP32. Save and the dashboard will refresh.</p>
+        <p class="hint">Pins listed are free on the ESP32.</p>
         <ul class="list" id="switchList"></ul>
       </div>
 
