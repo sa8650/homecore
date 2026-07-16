@@ -12,8 +12,7 @@
   <div class="modal" id="connModal" data-open="true">
     <div class="modal-card narrow">
       <h2>🏠 Connect to your ESP32</h2>
-      <p class="muted">Enter the device's IP and admin password. The webapp will
-        talk to your ESP32 over your local network.</p>
+      <p class="muted">Hosted on GitHub Pages. Talks to your ESP32 through a CORS proxy (free for github.io domains). Enter your device's IP and password.</p>
       <label>ESP32 IP / hostname</label>
       <input id="espHost" placeholder="http://192.168.1.42" />
       <label>Admin password</label>
@@ -134,8 +133,7 @@
           <select id="newSwPin"></select>
           <button class="btn primary" id="btnCreateSw">Add</button>
         </div>
-        <p class="hint">Pins listed are free on the ESP32. Save and the dashboard
-          will refresh.</p>
+        <p class="hint">Pins listed are free on the ESP32. Save and the dashboard will refresh.</p>
         <ul class="list" id="switchList"></ul>
       </div>
 
