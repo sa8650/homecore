@@ -1,57 +1,57 @@
 /* =================================================================
  * api.js — REST client for the ESP32 firmware.
  *
- * The webapp is hosted on HTTPS (GitHub Pages / Netlify). The ESP32
- * serves its API over HTTP. Browsers block "mixed content" by default,
- * so direct calls from an HTTPS page to an HTTP endpoint fail.
- *
- * To work around this, we route requests through a CORS proxy that
- * sits on HTTPS. The proxy fetches the HTTP content and returns it
- * with proper CORS headers.
+ * Hosted on GitHub Pages (corsproxy.io whitelists *.github.io for free).
+ * Calls go through a CORS proxy because the page is HTTPS and the
+ * ESP32 only serves HTTP. corsproxy.io with the correct ?url= param
+ * works for GitHub Pages for free.
  * ================================================================= */
 
 const API_KEY_HOST = 'smarthome.host';
 const API_KEY_PASS = 'smarthome.pass';
+const API_KEY_PROXY = 'smarthome.proxyIdx';
 
-const CORS_PROXY = 'https://corsproxy.io/?';
-const CORS_PROXY_FALLBACK = 'https://api.allorigins.win/raw?url=';
+const PROXIES = [
+  { name: 'corsproxy.io',
+    build: (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u) },
+  { name: 'allorigins.win',
+    build: (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+  { name: 'thingproxy',
+    build: (u) => 'https://thingproxy.freeboard.io/fetch/' + u },
+  { name: 'codetabs',
+    build: (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
+];
 
 const ESP = {
   host: '',
   pass: '',
-  useProxy: false,
-  useProxyFallback: false,
+  proxyIdx: 0,
+  useProxy: true,    // always true when hosted on HTTPS
 
   load() {
     this.host = localStorage.getItem(API_KEY_HOST) || '';
     this.pass = localStorage.getItem(API_KEY_PASS) || '';
-    this.useProxy = localStorage.getItem('smarthome.proxy') === '1';
+    this.proxyIdx = parseInt(localStorage.getItem(API_KEY_PROXY) || '0', 10);
   },
   save(host, pass, opts = {}) {
     this.host = host.trim().replace(/\/+$/, '');
     this.pass = pass;
-    this.useProxy = !!opts.useProxy;
+    if (typeof opts.proxyIdx === 'number') this.proxyIdx = opts.proxyIdx;
     localStorage.setItem(API_KEY_HOST, this.host);
     localStorage.setItem(API_KEY_PASS, this.pass);
-    localStorage.setItem('smarthome.proxy', this.useProxy ? '1' : '0');
+    localStorage.setItem(API_KEY_PROXY, String(this.proxyIdx));
   },
-  hasCreds() {
-    return !!this.host && !!this.pass;
-  },
+  hasCreds() { return !!this.host && !!this.pass; },
 
-  url(p) {
+  buildUrl(p, idx = this.proxyIdx) {
     if (!this.host) throw new Error('No ESP32 host configured');
     const target = this.host + (p.startsWith('/') ? p : '/' + p);
-    if (this.useProxy) {
-      return CORS_PROXY + encodeURIComponent(target);
-    }
-    return target;
+    return PROXIES[idx].build(target);
   },
 
-  urlFallback(p) {
-    if (!this.host) throw new Error('No ESP32 host configured');
-    const target = this.host + (p.startsWith('/') ? p : '/' + p);
-    return CORS_PROXY_FALLBACK + encodeURIComponent(target);
+  nextProxy() {
+    this.proxyIdx = (this.proxyIdx + 1) % PROXIES.length;
+    localStorage.setItem(API_KEY_PROXY, String(this.proxyIdx));
   },
 
   async request(method, path, body) {
@@ -66,28 +66,29 @@ const ESP = {
       opts.body = body;
     }
 
-    let res;
+    // Try the current proxy first
     try {
-      res = await fetch(this.url(path), opts);
-    } catch (networkErr) {
-      if (!this.useProxy) {
-        console.warn('Direct fetch failed, switching to CORS proxy:', networkErr);
-        this.useProxy = true;
-        localStorage.setItem('smarthome.proxy', '1');
-        return this.request(method, path, body);
-      }
-      if (!this.useProxyFallback) {
+      const res = await fetch(this.buildUrl(path), opts);
+      return await this._parse(res);
+    } catch (e1) {
+      // Try the other proxies
+      for (let i = 0; i < PROXIES.length; i++) {
+        if (i === this.proxyIdx) continue;
         try {
-          res = await fetch(this.urlFallback(path), opts);
-          this.useProxyFallback = true;
-        } catch (e) {
-          throw new Error('Network error (both direct and proxy failed)');
-        }
-      } else {
-        throw networkErr;
+          const altUrl = this.buildUrl(path, i);
+          const res = await fetch(altUrl, opts);
+          const data = await this._parse(res);
+          this.proxyIdx = i;
+          localStorage.setItem(API_KEY_PROXY, String(i));
+          console.log('[ESP] Switched to proxy: ' + PROXIES[i].name);
+          return data;
+        } catch (e2) { /* try next */ }
       }
+      throw new Error('All proxies failed. ESP32 unreachable.');
     }
+  },
 
+  async _parse(res) {
     const text = await res.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch (_) { /* not json */ }
@@ -101,6 +102,7 @@ const ESP = {
   get(path)        { return this.request('GET', path); },
   post(path, body) { return this.request('POST', path, body || {}); },
 
+  // ---- typed endpoints ------------------------------------------------
   info()        { return this.get('/api/info'); },
   login()       { return this.post('/api/login', { password: this.pass }); },
   status()      { return this.get('/api/status'); },
@@ -140,45 +142,74 @@ const ESP = {
   },
   silenceAlarm() { return this.post('/api/silenceAlarm'); },
 
+  /** Test each proxy, return the first that successfully reaches /api/info. */
+  async findWorkingProxy(timeoutMs = 5000) {
+    if (!this.host) throw new Error('No ESP32 host configured');
+    const target = this.host + '/api/info';
+    for (let i = 0; i < PROXIES.length; i++) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), timeoutMs);
+        const res = await fetch(PROXIES[i].build(target), {
+          signal: ctrl.signal,
+          cache: 'no-store',
+          headers: { 'X-Auth-Password': this.pass }
+        });
+        clearTimeout(t);
+        if (res.ok) {
+          const j = await res.json();
+          if (j && (j.name === 'SmartHome' || j.chip)) {
+            this.proxyIdx = i;
+            localStorage.setItem(API_KEY_PROXY, String(i));
+            return { proxy: PROXIES[i].name, info: j };
+          }
+        }
+      } catch (_) { /* try next */ }
+    }
+    return null;
+  },
+
+  /** Scan local subnets through the current proxy. */
   async discover(timeoutMs = 1500) {
     const candidates = [];
     const subnets = ['192.168.0', '192.168.1', '192.168.4', '10.0.0'];
     for (const sn of subnets) {
       for (let i = 1; i <= 254; i++) candidates.push(`${sn}.${i}`);
     }
-    const oldProxy = this.useProxy;
-    this.useProxy = true;
+    const oldIdx = this.proxyIdx;
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs * 12);
+    const t = setTimeout(() => ctrl.abort(), timeoutMs * 10);
     try {
       for (const ip of candidates) {
         if (ctrl.signal.aborted) break;
         const testHost = `http://${ip}`;
-        const prevHost = this.host;
-        this.host = testHost;
-        try {
-          const url = this.url('/api/info');
-          const res = await fetch(url, {
-            signal: ctrl.signal,
-            cache: 'no-store',
-            headers: { 'X-Auth-Password': this.pass }
-          });
-          if (res.ok) {
-            const j = await res.json();
-            if (j && (j.name === 'SmartHome' || j.chip)) {
-              this.host = prevHost;
-              return { host: testHost, info: j };
+        for (let pi = 0; pi < PROXIES.length; pi++) {
+          try {
+            const url = PROXIES[pi].build(testHost + '/api/info');
+            const res = await fetch(url, {
+              signal: ctrl.signal,
+              cache: 'no-store',
+              headers: { 'X-Auth-Password': this.pass }
+            });
+            if (res.ok) {
+              const j = await res.json();
+              if (j && (j.name === 'SmartHome' || j.chip)) {
+                this.proxyIdx = pi;
+                localStorage.setItem(API_KEY_PROXY, String(pi));
+                return { host: testHost, info: j, proxy: PROXIES[pi].name };
+              }
             }
-          }
-        } catch (_) { /* ignore */ }
-        this.host = prevHost;
+          } catch (_) { /* try next proxy */ }
+        }
       }
     } finally {
       clearTimeout(t);
-      this.useProxy = oldProxy;
+      this.proxyIdx = oldIdx;
     }
     return null;
   },
+
+  getProxyList() { return PROXIES.map((p, i) => ({ name: p.name, idx: i, current: i === this.proxyIdx })); },
 };
 
 ESP.load();
