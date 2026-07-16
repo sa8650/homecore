@@ -7,13 +7,10 @@ const ROOM_ICONS = {
   balcony: '🌿', dining: '🍽️', living: '🛋️', custom: '🏠',
 };
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const $  = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-const state = {
-  info: null, rooms: [], switches: [], pins: [],
-  poll: null, pollMs: 5000,
-};
+const state = { info: null, rooms: [], switches: [], pins: [], poll: null, pollMs: 5000 };
 
 const toast = (msg, kind = '') => {
   const el = $('#toast');
@@ -24,21 +21,12 @@ const toast = (msg, kind = '') => {
   toast._t = setTimeout(() => (el.hidden = true), 2400);
 };
 
-const openModal = (id) => {
-  const m = document.getElementById(id);
-  if (m) m.dataset.open = 'true';
-};
-const closeModal = (id) => {
-  const m = document.getElementById(id);
-  if (m) m.dataset.open = 'false';
-};
+const openModal  = (id) => { const m = document.getElementById(id); if (m) m.dataset.open = 'true'; };
+const closeModal = (id) => { const m = document.getElementById(id); if (m) m.dataset.open = 'false'; };
 
 function showConnIfNeeded() {
-  if (ESP.hasCreds()) {
-    testConnection().catch(() => openModal('connModal'));
-  } else {
-    openModal('connModal');
-  }
+  if (ESP.hasCreds()) testConnection().catch(() => openModal('connModal'));
+  else openModal('connModal');
 }
 
 async function testConnection() {
@@ -55,8 +43,7 @@ async function connectFlow() {
   const pass = $('#espPass').value;
   if (!host || !pass) { toast('Host and password required', 'bad'); return; }
   ESP.save(host, pass);
-  const hint = $('#connHint');
-  hint.textContent = 'Connecting…';
+  $('#connHint').textContent = 'Connecting…';
   try {
     await testConnection();
     closeModal('connModal');
@@ -64,24 +51,21 @@ async function connectFlow() {
     startPolling();
     refreshAll();
   } catch (e) {
-    hint.textContent = 'Failed: ' + e.message;
+    $('#connHint').textContent = 'Failed: ' + e.message;
   }
 }
 
 async function discoverFlow() {
-  const hint = $('#connHint');
-  hint.textContent = 'Scanning… (~10s)';
+  $('#connHint').textContent = 'Scanning… (~30s)';
   try {
     const res = await ESP.discover();
     if (res) {
       $('#espHost').value = res.host;
-      hint.textContent = `Found via ${res.proxy}: ${res.info.name} at ${res.host}`;
+      $('#connHint').textContent = `Found ${res.info.name} at ${res.host}`;
     } else {
-      hint.textContent = 'No device found. Check the IP manually.';
+      $('#connHint').textContent = 'No device found. Type the IP manually.';
     }
-  } catch (e) {
-    hint.textContent = 'Scan failed: ' + e.message;
-  }
+  } catch (e) { $('#connHint').textContent = 'Scan failed: ' + e.message; }
 }
 
 function bindTabs() {
@@ -89,8 +73,7 @@ function bindTabs() {
     t.addEventListener('click', () => {
       const name = t.dataset.tab;
       $$('.tab').forEach((x) => x.classList.toggle('active', x === t));
-      $$('.tab-panel').forEach((p) =>
-        p.classList.toggle('active', p.dataset.panel === name));
+      $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
     });
   });
 }
@@ -109,14 +92,13 @@ async function refreshAll() {
     state.switches = (switches && switches.switches) || [];
     state.pins = (pins && pins.pins) || [];
 
-    $('#sUptime').textContent = formatTime(info.uptime ?? 0);
-    $('#sHeap').textContent = ((info.heap || 0) / 1024).toFixed(0) + ' kB';
-    $('#sRssi').textContent = (status && status.rssi) || '—';
-    $('#sMode').textContent = info.mode || '—';
-    $('#sRooms').textContent = state.rooms.length;
+    $('#sUptime').textContent  = formatTime(info.uptime ?? 0);
+    $('#sHeap').textContent    = ((info.heap || 0) / 1024).toFixed(0) + ' kB';
+    $('#sRssi').textContent    = (status && status.rssi) || '—';
+    $('#sMode').textContent    = info.mode || '—';
+    $('#sRooms').textContent   = state.rooms.length;
     $('#sSwitches').textContent = state.switches.length;
-
-    $('#alarmBanner').hidden = !(status && status.alarm);
+    $('#alarmBanner').hidden   = !(status && status.alarm);
 
     renderFloorPlan();
     renderRoomList();
@@ -125,7 +107,7 @@ async function refreshAll() {
   } catch (e) {
     $('#connBadge').classList.remove('ok');
     $('#connBadge').textContent = 'offline';
-    if (ESP.hasCreds()) toast('Connection lost: ' + e.message, 'bad');
+    if (ESP.hasCreds()) toast('Lost: ' + e.message, 'bad');
   }
 }
 
@@ -136,14 +118,13 @@ function startPolling() {
 
 function formatTime(s) {
   s = Number(s) || 0;
-  const h = Math.floor(s / 3600),
-        m = Math.floor((s % 3600) / 60),
-        ss = s % 60;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   if (h) return `${h}h ${m}m`;
   if (m) return `${m}m ${ss}s`;
   return `${ss}s`;
 }
 
+// ---------- floor plan ----------
 function renderFloorPlan() {
   const fp = $('#floorplan');
   fp.innerHTML = '';
@@ -151,9 +132,7 @@ function renderFloorPlan() {
     fp.innerHTML = '<div class="empty">No rooms yet. Click <b>+ Room</b> to begin.</div>';
     return;
   }
-  for (let i = 0; i < state.rooms.length; i++) {
-    fp.appendChild(buildRoomEl(state.rooms[i], i));
-  }
+  state.rooms.forEach((r, i) => fp.appendChild(buildRoomEl(r, i)));
 }
 
 function buildRoomEl(r, index) {
@@ -161,12 +140,10 @@ function buildRoomEl(r, index) {
   el.className = 'room';
   el.dataset.index = index;
   applyPosition(el, r);
-
   const icon = ROOM_ICONS[r.type] || '🏠';
   const head = document.createElement('div');
   head.className = 'room-head';
-  head.innerHTML = `<span><span class="icon">${icon}</span> ${escapeHtml(r.name)}</span>
-                    <span class="menu" title="Delete">✕</span>`;
+  head.innerHTML = `<span><span class="icon">${icon}</span> ${escapeHtml(r.name)}</span><span class="menu" title="Delete">✕</span>`;
   head.querySelector('.menu').addEventListener('click', () => deleteRoom(index));
   el.appendChild(head);
 
@@ -177,12 +154,11 @@ function buildRoomEl(r, index) {
     .filter((s) => s.roomId === r.id);
   if (swInRoom.length === 0) {
     const e = document.createElement('div');
-    e.className = 'muted';
-    e.style.fontSize = '11px';
+    e.className = 'muted'; e.style.fontSize = '11px';
     e.textContent = 'No switches assigned';
     body.appendChild(e);
   } else {
-    for (const s of swInRoom) body.appendChild(buildSwitchEl(s));
+    swInRoom.forEach((s) => body.appendChild(buildSwitchEl(s)));
   }
   el.appendChild(body);
 
@@ -197,8 +173,8 @@ function buildRoomEl(r, index) {
 
 function applyPosition(el, r) {
   el.style.left = r.x + '%';
-  el.style.top = r.y + '%';
-  el.style.width = r.width + '%';
+  el.style.top  = r.y + '%';
+  el.style.width  = r.width + '%';
   el.style.height = r.height + '%';
 }
 
@@ -242,7 +218,8 @@ function attachDrag(el, handle, index, mode) {
     startVal = { x: r.x, y: r.y, w: r.width, h: r.height };
     el.classList.add('dragging');
     doing = true;
-    window.addEventListener(mode === 'move' ? 'mousemove' : 'touchmove', onMove, { passive: false });
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchend', onUp);
   };
@@ -281,6 +258,7 @@ function attachDrag(el, handle, index, mode) {
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
+// ---------- lists ----------
 function renderRoomList() {
   const ul = $('#roomList');
   ul.innerHTML = '';
@@ -293,13 +271,9 @@ function renderRoomList() {
         <span class="muted">(${r.type}, ${swCount} switches)</span>
       </span>
       <span class="row gap-8">
-        <button class="btn" data-move="-1" data-i="${i}">←</button>
-        <button class="btn" data-move="1"  data-i="${i}">→</button>
         <button class="btn danger" data-del="${i}">Delete</button>
       </span>`;
     li.querySelector('[data-del]').addEventListener('click', () => deleteRoom(i));
-    li.querySelectorAll('[data-move]').forEach((b) =>
-      b.addEventListener('click', () => reassignRoom(i, +b.dataset.move)));
     ul.appendChild(li);
   });
 }
@@ -362,6 +336,7 @@ function renderPinOptions() {
   }
 }
 
+// ---------- actions ----------
 async function addRoom() {
   const name = $('#newRoomName').value.trim();
   const type = $('#newRoomType').value;
@@ -379,22 +354,6 @@ async function deleteRoom(i) {
   try {
     await ESP.deleteRoom(i);
     toast('Room deleted', 'ok');
-    refreshAll();
-  } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function reassignRoom(i, dir) {
-  const r = state.rooms[i];
-  const assigned = new Set(state.switches
-    .map((s, idx) => (s.roomId === r.id ? idx : -1))
-    .filter((x) => x >= 0));
-  const pool = state.switches
-    .map((s, idx) => ({ s, idx }))
-    .filter((x) => x.s.roomId !== r.id);
-  if (pool.length === 0) { toast('No unassigned switches', 'bad'); return; }
-  const pick = pool[(dir > 0 ? assigned.size : 0) % pool.length].idx;
-  try {
-    await ESP.assignSwitch(pick, r.id);
     refreshAll();
   } catch (e) { toast(e.message, 'bad'); }
 }
@@ -444,15 +403,12 @@ async function testConn() {
   const host = $('#setHost').value.trim() || ESP.host;
   const pass = $('#setPass').value || ESP.pass;
   if (!host || !pass) { toast('Both fields required', 'bad'); return; }
-  const old = { host: ESP.host, pass: ESP.pass };
-  ESP.host = host.replace(/\/+$/, '');
-  ESP.pass = pass;
+  ESP.save(host, pass);
   try {
     const info = await ESP.info();
     $('#testResult').textContent = `OK — ${info.name} v${info.version} (${info.chip})`;
     toast('Connection works', 'ok');
   } catch (e) {
-    ESP.host = old.host; ESP.pass = old.pass;
     $('#testResult').textContent = 'Failed: ' + e.message;
     toast(e.message, 'bad');
   }
@@ -473,37 +429,11 @@ async function saveWifi() {
 
 async function loadWifiIntoUi() {
   try {
-    const w = await ESP.wifiConfig();
+    const w = await ESP.wifi();
     $('#wifiMode').value = w.mode || 'sta';
     $('#wifiStaBox').style.display = w.mode === 'sta' ? '' : 'none';
     $('#wifiSSID').value = w.ssid || '';
   } catch (_) { /* ignore */ }
-}
-
-async function testProxies() {
-  const out = $('#proxyList');
-  out.textContent = 'Testing all proxies… (takes ~10s)';
-  const list = ESP.getProxyList();
-  const results = [];
-  for (const p of list) {
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 5000);
-      const url = ESP.buildUrl('/api/info', p.idx);
-      const r = await fetch(url, {
-        signal: ctrl.signal,
-        headers: { 'X-Auth-Password': ESP.pass }
-      });
-      clearTimeout(t);
-      results.push({ name: p.name, ok: r.ok, code: r.status });
-    } catch (e) {
-      results.push({ name: p.name, ok: false, err: e.message });
-    }
-  }
-  out.innerHTML = results.map(r => {
-    if (r.ok) return `<div style="color:#22c55e;">✅ ${r.name}: works</div>`;
-    return `<div style="color:#ef4444;">❌ ${r.name}: ${r.err || ('HTTP ' + r.code)}</div>`;
-  }).join('');
 }
 
 function prefillConnInputs() {
@@ -532,15 +462,11 @@ function wire() {
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'rooms'));
     $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === 'rooms'));
   });
-  $('#btnResetPlan').addEventListener('click', () => {
-    if (!confirm('Reset all rooms to default grid?')) return;
-    refreshAll();
-  });
+  $('#btnResetPlan').addEventListener('click', refreshAll);
   $('#btnCreateRoom').addEventListener('click', addRoom);
   $('#btnCreateSw').addEventListener('click', addSwitch);
   $('#btnSaveConn').addEventListener('click', saveConn);
   $('#btnTestConn').addEventListener('click', testConn);
-  $('#btnTestProxies').addEventListener('click', testProxies);
   $('#btnSaveWifi').addEventListener('click', saveWifi);
   $('#wifiMode').addEventListener('change', (e) => {
     $('#wifiStaBox').style.display = e.target.value === 'sta' ? '' : 'none';
@@ -553,28 +479,19 @@ function wire() {
     const out = $('#rawOut');
     out.textContent = '…';
     try {
-      const data = b
-        ? await ESP.request(m, p, b)
-        : await ESP.request(m, p);
+      const data = b ? await ESP.request(m, p, b) : await ESP.request(m, p);
       out.textContent = JSON.stringify(data, null, 2);
-    } catch (e) {
-      out.textContent = 'Error: ' + e.message;
-    }
+    } catch (e) { out.textContent = 'Error: ' + e.message; }
   });
 
   bindTabs();
-
   ['#espHost', '#espPass'].forEach((s) => {
-    $(s).addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') connectFlow();
-    });
+    $(s).addEventListener('keydown', (e) => { if (e.key === 'Enter') connectFlow(); });
   });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   wire();
   showConnIfNeeded();
-  if (ESP.hasCreds()) {
-    refreshAll().then(startPolling);
-  }
+  if (ESP.hasCreds()) refreshAll().then(startPolling);
 });
