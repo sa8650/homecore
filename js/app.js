@@ -1,5 +1,5 @@
 /* =================================================================
- * app.js — Smart Home webapp (GitHub Pages + corsproxy.io)
+ * app.js — Smart Home webapp (MQTT + HTTP dual-mode)
  * ================================================================= */
 
 const ROOM_ICONS = {
@@ -24,28 +24,62 @@ const toast = (msg, kind = '') => {
 const openModal  = (id) => { const m = document.getElementById(id); if (m) m.dataset.open = 'true'; };
 const closeModal = (id) => { const m = document.getElementById(id); if (m) m.dataset.open = 'false'; };
 
+// ---- Connection Flow ----
 function showConnIfNeeded() {
-  if (ESP.hasCreds()) testConnection().catch(() => openModal('connModal'));
-  else openModal('connModal');
+  if (ESP.hasCreds()) {
+    connectAndLoad().catch(() => openModal('connModal'));
+  } else {
+    openModal('connModal');
+  }
 }
 
-async function testConnection() {
-  if (!ESP.hasCreds()) throw new Error('No credentials');
-  const info = await ESP.info();
-  state.info = info;
-  $('#connBadge').textContent = `${info.mode} · ${info.ip || ''}`;
-  $('#connBadge').classList.add('ok');
-  return info;
+async function connectAndLoad() {
+  if (ESP.mode === 'mqtt') {
+    await ESP.connectMqtt(ESP.mqttBroker, ESP.mqttUser, ESP.mqttPass, ESP.mqttBoardId);
+    $('#connBadge').textContent = `MQTT · ${ESP.mqttBoardId || 'all'}`;
+    $('#connBadge').classList.add('ok');
+  } else {
+    const info = await ESP.info();
+    state.info = info;
+    $('#connBadge').textContent = `HTTP · ${info.ip || ESP.httpHost}`;
+    $('#connBadge').classList.add('ok');
+  }
 }
 
-async function connectFlow() {
+// MQTT Connect button
+async function mqttConnectFlow() {
+  const broker = $('#mqttBroker').value.trim();
+  const user = $('#mqttUser').value.trim();
+  const pass = $('#mqttPass').value;
+  const boardId = $('#mqttBoardId').value.trim();
+  if (!broker) { toast('MQTT broker URL required', 'bad'); return; }
+
+  ESP.save('mqtt', { broker, user, pass, boardId });
+  $('#mqttHint').textContent = 'Connecting...';
+
+  try {
+    await ESP.connectMqtt(broker, user, pass, boardId);
+    closeModal('connModal');
+    toast('Connected via MQTT', 'ok');
+    startPolling();
+    refreshAll();
+  } catch (e) {
+    $('#mqttHint').textContent = 'Failed: ' + e.message;
+  }
+}
+
+// HTTP Connect button
+async function httpConnectFlow() {
   const host = $('#espHost').value.trim();
   const pass = $('#espPass').value;
   if (!host || !pass) { toast('Host and password required', 'bad'); return; }
-  ESP.save(host, pass);
-  $('#connHint').textContent = 'Connecting…';
+
+  ESP.save('http', { host, pass });
+  $('#connHint').textContent = 'Connecting...';
+
   try {
-    await testConnection();
+    const info = await ESP.info();
+    state.info = info;
     closeModal('connModal');
     toast('Connected', 'ok');
     startPolling();
@@ -56,7 +90,7 @@ async function connectFlow() {
 }
 
 async function discoverFlow() {
-  $('#connHint').textContent = 'Scanning… (~30s)';
+  $('#connHint').textContent = 'Scanning... (~10s)';
   try {
     const res = await ESP.discover();
     if (res) {
@@ -68,37 +102,65 @@ async function discoverFlow() {
   } catch (e) { $('#connHint').textContent = 'Scan failed: ' + e.message; }
 }
 
+// ---- Tabs ----
 function bindTabs() {
   $$('.tab').forEach((t) => {
     t.addEventListener('click', () => {
       const name = t.dataset.tab;
-      $$('.tab').forEach((x) => x.classList.toggle('active', x === t));
-      $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
+      const parent = t.closest('.modal-card') || document;
+      parent.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
+      parent.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
     });
   });
 }
 
+// ---- Board Selector ----
+function updateBoardSelector() {
+  const sel = $('#boardSelect');
+  sel.innerHTML = '';
+  const boards = ESP.getAllBoards();
+  if (boards.length === 0) {
+    sel.style.display = 'none';
+    return;
+  }
+  sel.style.display = '';
+  boards.forEach(b => {
+    const o = document.createElement('option');
+    o.value = b.boardId;
+    o.textContent = (b.state?.boardName || b.boardId) + (b.status === 'offline' ? ' (offline)' : '');
+    o.selected = b.boardId === ESP.mqttBoardId;
+    sel.appendChild(o);
+  });
+}
+
+// ---- Data Refresh ----
 async function refreshAll() {
   try {
     const [info, status, rooms, switches, pins] = await Promise.all([
-      ESP.info(),
+      ESP.info().catch(() => null),
       ESP.status().catch(() => null),
       ESP.rooms().catch(() => ({ rooms: [] })),
       ESP.switches().catch(() => ({ switches: [] })),
       ESP.pins().catch(() => ({ pins: [] })),
     ]);
-    state.info = info;
+
+    if (info) state.info = info;
     state.rooms = (rooms && rooms.rooms) || [];
     state.switches = (switches && switches.switches) || [];
     state.pins = (pins && pins.pins) || [];
 
-    $('#sUptime').textContent  = formatTime(info.uptime ?? 0);
-    $('#sHeap').textContent    = ((info.heap || 0) / 1024).toFixed(0) + ' kB';
-    $('#sRssi').textContent    = (status && status.rssi) || '—';
-    $('#sMode').textContent    = info.mode || '—';
+    if (info) {
+      $('#sUptime').textContent  = formatTime(info.uptime ?? 0);
+      $('#sHeap').textContent    = ((info.heap || 0) / 1024).toFixed(0) + ' kB';
+      $('#sRssi').textContent    = (status && status.rssi) || '—';
+      $('#sMode').textContent    = info.mode || '—';
+      $('#sMqtt').textContent    = ESP.mode === 'mqtt' ? '✓' : (info.mqtt ? '✓' : '✗');
+    }
     $('#sRooms').textContent   = state.rooms.length;
     $('#sSwitches').textContent = state.switches.length;
     $('#alarmBanner').hidden   = !(status && status.alarm);
+
+    if (ESP.mode === 'mqtt') updateBoardSelector();
 
     renderFloorPlan();
     renderRoomList();
@@ -113,7 +175,10 @@ async function refreshAll() {
 
 function startPolling() {
   if (state.poll) clearInterval(state.poll);
-  state.poll = setInterval(refreshAll, state.pollMs);
+  if (ESP.mode === 'http') {
+    state.poll = setInterval(refreshAll, state.pollMs);
+  }
+  // MQTT gets real-time updates via subscription
 }
 
 function formatTime(s) {
@@ -124,7 +189,7 @@ function formatTime(s) {
   return `${ss}s`;
 }
 
-// ---------- floor plan ----------
+// ---- Floor Plan ----
 function renderFloorPlan() {
   const fp = $('#floorplan');
   fp.innerHTML = '';
@@ -258,7 +323,7 @@ function attachDrag(el, handle, index, mode) {
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-// ---------- lists ----------
+// ---- Room/Switch Lists ----
 function renderRoomList() {
   const ul = $('#roomList');
   ul.innerHTML = '';
@@ -336,7 +401,7 @@ function renderPinOptions() {
   }
 }
 
-// ---------- actions ----------
+// ---- Actions ----
 async function addRoom() {
   const name = $('#newRoomName').value.trim();
   const type = $('#newRoomType').value;
@@ -345,7 +410,8 @@ async function addRoom() {
     await ESP.addRoom(name, type);
     $('#newRoomName').value = '';
     toast('Room added', 'ok');
-    refreshAll();
+    if (ESP.mode === 'http') refreshAll();
+    // MQTT: wait for state update
   } catch (e) { toast(e.message, 'bad'); }
 }
 
@@ -354,7 +420,7 @@ async function deleteRoom(i) {
   try {
     await ESP.deleteRoom(i);
     toast('Room deleted', 'ok');
-    refreshAll();
+    if (ESP.mode === 'http') refreshAll();
   } catch (e) { toast(e.message, 'bad'); }
 }
 
@@ -366,7 +432,7 @@ async function addSwitch() {
     await ESP.addSwitch(name, pin);
     $('#newSwName').value = '';
     toast('Switch added', 'ok');
-    refreshAll();
+    if (ESP.mode === 'http') refreshAll();
   } catch (e) { toast(e.message, 'bad'); }
 }
 
@@ -374,7 +440,7 @@ async function deleteSwitch(i) {
   if (!confirm('Delete this switch?')) return;
   try {
     await ESP.deleteSwitch(i);
-    refreshAll();
+    if (ESP.mode === 'http') refreshAll();
   } catch (e) { toast(e.message, 'bad'); }
 }
 
@@ -386,92 +452,158 @@ async function silenceAlarm() {
   } catch (e) { toast(e.message, 'bad'); }
 }
 
-async function saveConn() {
-  const host = $('#setHost').value.trim();
-  const pass = $('#setPass').value;
-  if (!host || !pass) { toast('Both fields required', 'bad'); return; }
-  ESP.save(host, pass);
-  try {
-    await testConnection();
-    toast('Connected', 'ok');
-    refreshAll();
-    startPolling();
-  } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function testConn() {
-  const host = $('#setHost').value.trim() || ESP.host;
-  const pass = $('#setPass').value || ESP.pass;
-  if (!host || !pass) { toast('Both fields required', 'bad'); return; }
-  ESP.save(host, pass);
-  try {
-    const info = await ESP.info();
-    $('#testResult').textContent = `OK — ${info.name} v${info.version} (${info.chip})`;
-    toast('Connection works', 'ok');
-  } catch (e) {
-    $('#testResult').textContent = 'Failed: ' + e.message;
-    toast(e.message, 'bad');
+// ---- Settings ----
+function prefillConnInputs() {
+  if (ESP.mode === 'mqtt') {
+    $('#mqttBroker').value = ESP.mqttBroker;
+    $('#mqttUser').value = ESP.mqttUser;
+    $('#mqttPass').value = ESP.mqttPass;
+    $('#mqttBoardId').value = ESP.mqttBoardId;
+  } else {
+    $('#espHost').value = ESP.httpHost;
+    $('#espPass').value = ESP.httpPass;
   }
 }
 
-async function saveWifi() {
-  const mode = $('#wifiMode').value;
-  const ssid = $('#wifiSSID').value;
-  const pass = $('#wifiPass').value;
-  if (mode === 'sta' && !ssid) { toast('SSID required', 'bad'); return; }
-  if (!confirm('This will restart the ESP32. Continue?')) return;
+async function loadConfigIntoUI() {
   try {
-    await ESP.setWifi(mode, ssid, pass);
-    toast('Wi-Fi saved. Reconnecting in 10s…', 'ok');
-    setTimeout(() => location.reload(), 10000);
+    const cfg = await ESP.getConfig();
+    if (cfg) {
+      $('#cfgBoardName').value = cfg.boardName || '';
+      $('#cfgDeviceName').value = cfg.deviceName || '';
+      $('#cfgRoomName').value = cfg.roomName || '';
+      $('#cfgTimezone').value = cfg.timezone || 'UTC';
+      $('#cfgMqttServer').value = cfg.mqttServer || '';
+      $('#cfgMqttPort').value = cfg.mqttPort || 1883;
+      $('#cfgMqttUser').value = cfg.mqttUser || '';
+      $('#cfgWifiSSID').value = cfg.wifiSSID || '';
+    }
+  } catch (_) {}
+}
+
+async function saveConfig() {
+  const config = {
+    boardName: $('#cfgBoardName').value,
+    deviceName: $('#cfgDeviceName').value,
+    roomName: $('#cfgRoomName').value,
+    timezone: $('#cfgTimezone').value,
+  };
+
+  const mqttServer = $('#cfgMqttServer').value;
+  if (mqttServer) {
+    config.mqttServer = mqttServer;
+    config.mqttPort = parseInt($('#cfgMqttPort').value) || 1883;
+    config.mqttUser = $('#cfgMqttUser').value;
+  }
+
+  const wifiSSID = $('#cfgWifiSSID').value;
+  if (wifiSSID) {
+    config.wifiSSID = wifiSSID;
+    config.wifiPass = $('#cfgWifiPass').value;
+  }
+
+  try {
+    await ESP.setConfig(config);
+    toast('Config saved', 'ok');
+    if (wifiSSID) {
+      toast('Board restarting for Wi-Fi change...', 'ok');
+    }
   } catch (e) { toast(e.message, 'bad'); }
 }
 
-async function loadWifiIntoUi() {
+async function restartBoard() {
+  if (!confirm('Restart the ESP32 board?')) return;
   try {
-    const w = await ESP.wifi();
-    $('#wifiMode').value = w.mode || 'sta';
-    $('#wifiStaBox').style.display = w.mode === 'sta' ? '' : 'none';
-    $('#wifiSSID').value = w.ssid || '';
-  } catch (_) { /* ignore */ }
+    await ESP.restart();
+    toast('Board restarting...', 'ok');
+  } catch (e) { toast(e.message, 'bad'); }
 }
 
-function prefillConnInputs() {
-  $('#espHost').value = ESP.host;
-  $('#espPass').value = ESP.pass;
-  $('#setHost').value = ESP.host;
-  $('#setPass').value = ESP.pass;
+function disconnect() {
+  ESP.disconnect();
+  if (state.poll) clearInterval(state.poll);
+  state.info = null;
+  state.rooms = [];
+  state.switches = [];
+  $('#connBadge').classList.remove('ok');
+  $('#connBadge').textContent = 'offline';
+  openModal('connModal');
+  toast('Disconnected');
 }
 
+// ---- Wire Events ----
 function wire() {
+  // Close buttons
   $$('[data-close]').forEach((b) => b.addEventListener('click',
     () => closeModal(b.closest('.modal').id)));
 
-  $('#btnConnect').addEventListener('click', connectFlow);
+  // Connection modal tabs
+  bindTabs();
+
+  // MQTT connect
+  $('#btnMqttConnect').addEventListener('click', mqttConnectFlow);
+
+  // HTTP connect
+  $('#btnConnect').addEventListener('click', httpConnectFlow);
   $('#btnDiscover').addEventListener('click', discoverFlow);
+
+  // Enter key on inputs
+  ['#mqttBroker', '#mqttUser', '#mqttPass', '#mqttBoardId'].forEach(s => {
+    $(s).addEventListener('keydown', e => { if (e.key === 'Enter') mqttConnectFlow(); });
+  });
+  ['#espHost', '#espPass'].forEach(s => {
+    $(s).addEventListener('keydown', e => { if (e.key === 'Enter') httpConnectFlow(); });
+  });
+
+  // Board selector
+  $('#boardSelect').addEventListener('change', (e) => {
+    ESP.selectBoard(e.target.value);
+    refreshAll();
+  });
+
+  // Top bar
+  $('#btnRefresh').addEventListener('click', () => {
+    if (ESP.mode === 'mqtt') {
+      ESP.mqttRequestState(ESP.mqttBoardId);
+      setTimeout(refreshAll, 500);
+    } else {
+      refreshAll();
+    }
+  });
+
   $('#btnSettings').addEventListener('click', () => {
     prefillConnInputs();
-    loadWifiIntoUi();
+    loadConfigIntoUI();
     openModal('settingsModal');
   });
-  $('#btnRefresh').addEventListener('click', refreshAll);
+
+  // Alarm
   $('#btnSilence').addEventListener('click', silenceAlarm);
+
+  // Room/Switch add buttons (from settings modal tabs)
   $('#btnAddRoom').addEventListener('click', () => {
     prefillConnInputs();
     openModal('settingsModal');
-    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'rooms'));
-    $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === 'rooms'));
-  });
-  $('#btnResetPlan').addEventListener('click', refreshAll);
-  $('#btnCreateRoom').addEventListener('click', addRoom);
-  $('#btnCreateSw').addEventListener('click', addSwitch);
-  $('#btnSaveConn').addEventListener('click', saveConn);
-  $('#btnTestConn').addEventListener('click', testConn);
-  $('#btnSaveWifi').addEventListener('click', saveWifi);
-  $('#wifiMode').addEventListener('change', (e) => {
-    $('#wifiStaBox').style.display = e.target.value === 'sta' ? '' : 'none';
+    const tabs = $$('.tabs')[1] ? $$('.tabs')[1].querySelectorAll('.tab') : $$('.tab');
+    const panels = $$('.tab-panel');
+    tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === 'rooms'));
+    panels.forEach((p) => p.classList.toggle('active', p.dataset.panel === 'rooms'));
   });
 
+  $('#btnCreateRoom').addEventListener('click', addRoom);
+  $('#btnCreateSw').addEventListener('click', addSwitch);
+  $('#btnResetPlan').addEventListener('click', refreshAll);
+
+  // Settings actions
+  $('#btnDisconnect').addEventListener('click', disconnect);
+  $('#btnReconnect').addEventListener('click', () => {
+    closeModal('settingsModal');
+    showConnIfNeeded();
+  });
+  $('#btnSaveConfig').addEventListener('click', saveConfig);
+  $('#btnRestartBoard').addEventListener('click', restartBoard);
+
+  // Raw API
   $('#btnRawSend').addEventListener('click', async () => {
     const m = $('#rawMethod').value;
     const p = $('#rawPath').value || '/api/info';
@@ -484,14 +616,37 @@ function wire() {
     } catch (e) { out.textContent = 'Error: ' + e.message; }
   });
 
-  bindTabs();
-  ['#espHost', '#espPass'].forEach((s) => {
-    $(s).addEventListener('keydown', (e) => { if (e.key === 'Enter') connectFlow(); });
+  // MQTT real-time updates
+  ESP.onStateUpdate((boardId, data) => {
+    if (boardId === ESP.mqttBoardId && data) {
+      state.rooms = data.rooms || [];
+      state.switches = data.switches || [];
+      renderFloorPlan();
+      renderRoomList();
+      renderSwitchList();
+
+      $('#sUptime').textContent  = formatTime(data.uptime ?? 0);
+      $('#sHeap').textContent    = ((data.heap || 0) / 1024).toFixed(0) + ' kB';
+      $('#sRssi').textContent    = data.rssi || '—';
+      $('#sRooms').textContent   = state.rooms.length;
+      $('#sSwitches').textContent = state.switches.length;
+      $('#alarmBanner').hidden   = !data.alarm;
+      updateBoardSelector();
+    }
   });
 }
 
+// ---- Boot ----
 document.addEventListener('DOMContentLoaded', () => {
   wire();
   showConnIfNeeded();
-  if (ESP.hasCreds()) refreshAll().then(startPolling);
+  if (ESP.hasCreds()) {
+    connectAndLoad().then(() => {
+      refreshAll();
+      startPolling();
+    }).catch(e => {
+      console.error('Initial connect failed:', e);
+      openModal('connModal');
+    });
+  }
 });
