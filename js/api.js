@@ -1,10 +1,7 @@
 /* =================================================================
- * api.js — REST client for the ESP32 firmware.
- *
- * Hosted on GitHub Pages (corsproxy.io whitelists *.github.io for free).
- * Calls go through a CORS proxy because the page is HTTPS and the
- * ESP32 only serves HTTP. corsproxy.io with the correct ?url= param
- * works for GitHub Pages for free.
+ * api.js — REST client for the ESP32 firmware (GitHub Pages + corsproxy.io)
+ * corsproxy.io allows *.github.io for free.
+ * URL format: https://corsproxy.io/?url=ENCODED_TARGET
  * ================================================================= */
 
 const API_KEY_HOST = 'smarthome.host';
@@ -26,7 +23,6 @@ const ESP = {
   host: '',
   pass: '',
   proxyIdx: 0,
-  useProxy: true,    // always true when hosted on HTTPS
 
   load() {
     this.host = localStorage.getItem(API_KEY_HOST) || '';
@@ -49,11 +45,6 @@ const ESP = {
     return PROXIES[idx].build(target);
   },
 
-  nextProxy() {
-    this.proxyIdx = (this.proxyIdx + 1) % PROXIES.length;
-    localStorage.setItem(API_KEY_PROXY, String(this.proxyIdx));
-  },
-
   async request(method, path, body) {
     const opts = {
       method,
@@ -66,17 +57,14 @@ const ESP = {
       opts.body = body;
     }
 
-    // Try the current proxy first
     try {
       const res = await fetch(this.buildUrl(path), opts);
       return await this._parse(res);
     } catch (e1) {
-      // Try the other proxies
       for (let i = 0; i < PROXIES.length; i++) {
         if (i === this.proxyIdx) continue;
         try {
-          const altUrl = this.buildUrl(path, i);
-          const res = await fetch(altUrl, opts);
+          const res = await fetch(this.buildUrl(path, i), opts);
           const data = await this._parse(res);
           this.proxyIdx = i;
           localStorage.setItem(API_KEY_PROXY, String(i));
@@ -84,7 +72,7 @@ const ESP = {
           return data;
         } catch (e2) { /* try next */ }
       }
-      throw new Error('All proxies failed. ESP32 unreachable.');
+      throw new Error('All proxies failed. ESP32 unreachable from browser.');
     }
   },
 
@@ -102,7 +90,6 @@ const ESP = {
   get(path)        { return this.request('GET', path); },
   post(path, body) { return this.request('POST', path, body || {}); },
 
-  // ---- typed endpoints ------------------------------------------------
   info()        { return this.get('/api/info'); },
   login()       { return this.post('/api/login', { password: this.pass }); },
   status()      { return this.get('/api/status'); },
@@ -142,7 +129,6 @@ const ESP = {
   },
   silenceAlarm() { return this.post('/api/silenceAlarm'); },
 
-  /** Test each proxy, return the first that successfully reaches /api/info. */
   async findWorkingProxy(timeoutMs = 5000) {
     if (!this.host) throw new Error('No ESP32 host configured');
     const target = this.host + '/api/info';
@@ -169,7 +155,6 @@ const ESP = {
     return null;
   },
 
-  /** Scan local subnets through the current proxy. */
   async discover(timeoutMs = 1500) {
     const candidates = [];
     const subnets = ['192.168.0', '192.168.1', '192.168.4', '10.0.0'];
@@ -209,7 +194,9 @@ const ESP = {
     return null;
   },
 
-  getProxyList() { return PROXIES.map((p, i) => ({ name: p.name, idx: i, current: i === this.proxyIdx })); },
+  getProxyList() {
+    return PROXIES.map((p, i) => ({ name: p.name, idx: i, current: i === this.proxyIdx }));
+  },
 };
 
 ESP.load();
